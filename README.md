@@ -1,0 +1,1 @@
+# MirMaks-davomat_server
