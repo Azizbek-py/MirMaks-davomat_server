@@ -29,7 +29,7 @@ app.add_middleware(
 )
 
 # Mount static files for uploads (only for /uploads/ path)
-app.mount("/uploads", StaticFiles(directory="../uploads"), name="uploads")
+app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
 
 @app.get("/")
 async def root():
