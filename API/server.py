@@ -11,6 +11,7 @@ from datetime import datetime
 from math import radians, sin, cos, sqrt, atan2
 from typing import Optional
 import sys
+from zoneinfo import ZoneInfo
 
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
@@ -85,7 +86,7 @@ async def send_to_channel(
 ):
     """Rasmni caption bilan Telegram kanalga yuboradi"""
 
-    now = datetime.now()
+    now = datetime.now(ZoneInfo("Asia/Tashkent"))
     sana = now.strftime("%d.%m.%Y")
     vaqt = now.strftime("%H:%M:%S")
 
