@@ -85,15 +85,12 @@ async def send_to_channel(
     longitude: float,
     accuracy: float,
 ):
-    """Rasmni caption bilan Telegram kanalga yuboradi"""
-
-    now = datetime.now(ZoneInfo("Asia/Tashkent"))
-    sana = now.strftime("%d.%m.%Y")
-    vaqt = now.strftime("%H:%M:%S")
-
-    emoji  = "🟢" if att_type == "KIRISH" else "🔴"
-    label  = "Xodimingiz ishga keldi" if att_type == "KIRISH" else "Xodimingiz ishdan ketdi"
-    maps   = f"https://maps.google.com/?q={latitude},{longitude}"
+    now   = datetime.now(ZoneInfo("Asia/Tashkent"))
+    sana  = now.strftime("%d.%m.%Y")
+    vaqt  = now.strftime("%H:%M:%S")
+    emoji = "🟢" if att_type == "KIRISH" else "🔴"
+    label = "Xodimingiz ishga keldi" if att_type == "KIRISH" else "Xodimingiz ishdan ketdi"
+    maps  = f"https://maps.google.com/?q={latitude},{longitude}"
 
     caption = (
         f"{emoji} <b>{label}</b>\n"
@@ -107,27 +104,23 @@ async def send_to_channel(
         f"🎯 <b>Ofisning ±{int(accuracy)}m atrofida</b>"
     )
 
-    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto"
+    reply_markup = json.dumps({
+        "inline_keyboard": [[
+            {
+                "text": f"{position} 👤",
+                "url":  f"tg://user?id={telegram_id}"
+            }
+        ]]
+    })
 
     async with httpx.AsyncClient(timeout=15) as client:
         response = await client.post(
-            url,
+            f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto",
             data={
-                "chat_id":    str(CHANNEL_ID),
-                "caption":    caption,
-                "parse_mode": "HTML",
-
-                "reply_markup": json.dumps({
-                "inline_keyboard": [
-                    [
-                        {
-                            "text": f"{postion}👤",
-                            "url": f"tg://user?id={telegram_id}"
-                        }
-                    ]
-                ]
-            })
-        },
+                "chat_id":      str(CHANNEL_ID),
+                "caption":      caption,
+                "parse_mode":   "HTML",
+                "reply_markup": reply_markup,
             },
             files={
                 "photo": ("selfie.jpg", image_bytes, "image/jpeg")
@@ -137,7 +130,7 @@ async def send_to_channel(
     if response.status_code != 200:
         print(f"[TELEGRAM ERROR] {response.status_code}: {response.text}", flush=True)
     else:
-        print(f"[TELEGRAM] Kanal ga yuborildi: {employee_name} {label}", flush=True)
+        print(f"[TELEGRAM] Yuborildi: {employee_name} — {label}", flush=True)
 
 
 # ─── ROOT ─────────────────────────────────────────────────────────────────────
@@ -218,10 +211,7 @@ async def submit_attendance(req: AttendanceRequest):
         label = "Kirish" if req.type == "KIRISH" else "Chiqish"
         return JSONResponse(
             status_code=200,
-            content={
-                "success": True,
-                "message": f"{label} muvaffaqiyatli qayd etildi ✓",
-            }
+            content={"success": True, "message": f"{label} muvaffaqiyatli qayd etildi ✓"}
         )
 
     except HTTPException:
@@ -245,7 +235,6 @@ async def add_employee(req: EmployeeRequest):
     try:
         if find_employee(req.telegram_id):
             raise HTTPException(status_code=400, detail="Xodim allaqachon mavjud")
-
         employee = {
             "telegram_id": req.telegram_id,
             "fullname":    req.fullname,
@@ -255,7 +244,6 @@ async def add_employee(req: EmployeeRequest):
         }
         employees_table.insert(employee)
         return {"success": True, "employee": employee}
-
     except HTTPException:
         raise
     except Exception as e:
@@ -269,14 +257,12 @@ async def update_employee(employee_id: int, employee_data: dict):
         employee = employees_table.get(Employee.telegram_id == employee_id)
         if not employee:
             raise HTTPException(status_code=404, detail="Xodim topilmadi")
-
         for key in ["fullname", "position", "active"]:
             if key in employee_data:
                 employee[key] = employee_data[key]
         employee["updated_at"] = datetime.now().isoformat()
         employees_table.update(employee, Employee.telegram_id == employee_id)
         return {"success": True, "employee": employee}
-
     except HTTPException:
         raise
     except Exception as e:
@@ -290,10 +276,8 @@ async def delete_employee(employee_id: int):
         employee = employees_table.get(Employee.telegram_id == employee_id)
         if not employee:
             raise HTTPException(status_code=404, detail="Xodim topilmadi")
-
         employees_table.remove(Employee.telegram_id == employee_id)
         return {"success": True, "message": "Xodim o'chirildi"}
-
     except HTTPException:
         raise
     except Exception as e:
