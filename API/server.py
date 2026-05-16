@@ -12,6 +12,7 @@ from math import radians, sin, cos, sqrt, atan2
 from typing import Optional
 import sys
 from zoneinfo import ZoneInfo
+import json
 
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
@@ -99,7 +100,6 @@ async def send_to_channel(
         f"━━━━━━━━━━━━━\n"
         f"👤 <b>Ism:</b> {employee_name}\n"
         f"💼 <b>Lavozim:</b> {position}\n"
-        f"🆔 <b>ID:</b> <code>{telegram_id}</code>\n"
         f"━━━━━━━━━━━━━\n"
         f"📅 <b>Sana:</b> {sana}\n"
         f"🕐 <b>Vaqt:</b> {vaqt}\n"
@@ -116,6 +116,18 @@ async def send_to_channel(
                 "chat_id":    str(CHANNEL_ID),
                 "caption":    caption,
                 "parse_mode": "HTML",
+
+                "reply_markup": json.dumps({
+                "inline_keyboard": [
+                    [
+                        {
+                            "text": f"{postion}👤",
+                            "url": f"tg://user?id={telegram_id}"
+                        }
+                    ]
+                ]
+            })
+        },
             },
             files={
                 "photo": ("selfie.jpg", image_bytes, "image/jpeg")
