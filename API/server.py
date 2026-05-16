@@ -90,20 +90,20 @@ async def send_to_channel(
     vaqt = now.strftime("%H:%M:%S")
 
     emoji  = "🟢" if att_type == "KIRISH" else "🔴"
-    label  = "KIRISH" if att_type == "KIRISH" else "CHIQISH"
+    label  = "Xodimingiz ishga keldi" if att_type == "KIRISH" else "Xodimingiz ishdan ketdi"
     maps   = f"https://maps.google.com/?q={latitude},{longitude}"
 
     caption = (
         f"{emoji} <b>{label}</b>\n"
-        f"━━━━━━━━━━━━━━━━━\n"
+        f"━━━━━━━━━━━━━\n"
         f"👤 <b>Ism:</b> {employee_name}\n"
         f"💼 <b>Lavozim:</b> {position}\n"
         f"🆔 <b>ID:</b> <code>{telegram_id}</code>\n"
-        f"━━━━━━━━━━━━━━━━━\n"
+        f"━━━━━━━━━━━━━\n"
         f"📅 <b>Sana:</b> {sana}\n"
         f"🕐 <b>Vaqt:</b> {vaqt}\n"
         f"📍 <b>Joylashuv:</b> <a href='{maps}'>Xaritada ko'rish</a>\n"
-        f"🎯 <b>Aniqlik:</b> ±{int(accuracy)}m"
+        f"🎯 <b>Ofisning ±{int(accuracy)}m atrofida</b>"
     )
 
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto"
