@@ -6,7 +6,7 @@ CHANNEL_ID = -1003920779804
 
 # Admin Telegram ID lar
 # O'zingizning Telegram user ID ni keyin qo'shasiz
-ADMIN_IDS = [123456789]
+ADMIN_IDS = [5143376517]
 
 # WebApp URL
 WEBAPP_URL = "https://mir-maks-davomat-client.vercel.app/"
