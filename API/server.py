@@ -2,17 +2,21 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import JSONResponse
+from pydantic import BaseModel
 from tinydb import Query
 import os
 import base64
+import httpx
 from datetime import datetime
 from math import radians, sin, cos, sqrt, atan2
+from typing import Optional
 import sys
 
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
 from utils.config import (
-    BOT_TOKEN, OFFICE_LAT, OFFICE_LON,
+    BOT_TOKEN, CHANNEL_ID,
+    OFFICE_LAT, OFFICE_LON,
     OFFICE_RADIUS, UPLOADS_DIR
 )
 from utils.db import employees_table, attendance_table
@@ -32,10 +36,31 @@ os.makedirs(UPLOADS_DIR, exist_ok=True)
 app.mount("/uploads", StaticFiles(directory=UPLOADS_DIR), name="uploads")
 
 
+# ─── SCHEMAS ──────────────────────────────────────────────────────────────────
+class AttendanceRequest(BaseModel):
+    telegram_id:  int
+    type:         str
+    latitude:     float
+    longitude:    float
+    accuracy:     float
+    selfie_data:  str
+    init_data:    str           = ""
+    timestamp:    Optional[str] = None
+    device_info:  Optional[str] = None
+    platform:     Optional[str] = None
+    capture_time: Optional[int] = None
+
+
+class EmployeeRequest(BaseModel):
+    telegram_id: int
+    fullname:    str
+    position:    str
+    active:      bool = True
+
+
 # ─── HELPERS ──────────────────────────────────────────────────────────────────
 def haversine(lat1, lon1, lat2, lon2) -> float:
-    """Ikki nuqta orasidagi masofa (metrda)"""
-    R = 6371000  # metr
+    R = 6371000
     dlat = radians(lat2 - lat1)
     dlon = radians(lon2 - lon1)
     a = sin(dlat / 2) ** 2 + cos(radians(lat1)) * cos(radians(lat2)) * sin(dlon / 2) ** 2
@@ -43,9 +68,63 @@ def haversine(lat1, lon1, lat2, lon2) -> float:
 
 
 def find_employee(telegram_id: int):
-    """TinyDB dan telegram_id bo'yicha xodim topish"""
     Employee = Query()
     return employees_table.get(Employee.telegram_id == telegram_id)
+
+
+# ─── TELEGRAM KANALGA RASM YUBORISH ──────────────────────────────────────────
+async def send_to_channel(
+    image_bytes: bytes,
+    employee_name: str,
+    position: str,
+    telegram_id: int,
+    att_type: str,
+    latitude: float,
+    longitude: float,
+    accuracy: float,
+):
+    """Rasmni caption bilan Telegram kanalga yuboradi"""
+
+    now = datetime.now()
+    sana = now.strftime("%d.%m.%Y")
+    vaqt = now.strftime("%H:%M:%S")
+
+    emoji  = "🟢" if att_type == "KIRISH" else "🔴"
+    label  = "KIRISH" if att_type == "KIRISH" else "CHIQISH"
+    maps   = f"https://maps.google.com/?q={latitude},{longitude}"
+
+    caption = (
+        f"{emoji} <b>{label}</b>\n"
+        f"━━━━━━━━━━━━━━━━━\n"
+        f"👤 <b>Ism:</b> {employee_name}\n"
+        f"💼 <b>Lavozim:</b> {position}\n"
+        f"🆔 <b>ID:</b> <code>{telegram_id}</code>\n"
+        f"━━━━━━━━━━━━━━━━━\n"
+        f"📅 <b>Sana:</b> {sana}\n"
+        f"🕐 <b>Vaqt:</b> {vaqt}\n"
+        f"📍 <b>Joylashuv:</b> <a href='{maps}'>Xaritada ko'rish</a>\n"
+        f"🎯 <b>Aniqlik:</b> ±{int(accuracy)}m"
+    )
+
+    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto"
+
+    async with httpx.AsyncClient(timeout=15) as client:
+        response = await client.post(
+            url,
+            data={
+                "chat_id":    str(CHANNEL_ID),
+                "caption":    caption,
+                "parse_mode": "HTML",
+            },
+            files={
+                "photo": ("selfie.jpg", image_bytes, "image/jpeg")
+            }
+        )
+
+    if response.status_code != 200:
+        print(f"[TELEGRAM ERROR] {response.status_code}: {response.text}", flush=True)
+    else:
+        print(f"[TELEGRAM] Kanal ga yuborildi: {employee_name} {label}", flush=True)
 
 
 # ─── ROOT ─────────────────────────────────────────────────────────────────────
@@ -56,90 +135,85 @@ async def root():
 
 # ─── ATTENDANCE ───────────────────────────────────────────────────────────────
 @app.post("/api/attendance")
-async def submit_attendance(
-    telegram_id: int,
-    type: str,
-    latitude: float,
-    longitude: float,
-    accuracy: float,
-    selfie_data: str,
-    init_data: str,
-    device_info: str = None,
-    platform: str = None,
-    capture_time: int = None,
-):
+async def submit_attendance(req: AttendanceRequest):
     try:
         # 1. Telegram init_data tekshirish
-        #    init_data bo'sh bo'lsa (test/brauzerdan) — o'tkazib yuboramiz
-        if init_data:
+        if req.init_data:
             try:
-                validate_init_data(init_data, BOT_TOKEN)
+                validate_init_data(req.init_data, BOT_TOKEN)
             except ValueError:
                 raise HTTPException(status_code=401, detail="Telegram ma'lumotlari noto'g'ri")
 
-        # 2. Xodimni topish (Query bilan, doc_id emas)
-        employee = find_employee(telegram_id)
+        # 2. Xodimni topish
+        employee = find_employee(req.telegram_id)
         if not employee:
             raise HTTPException(
                 status_code=404,
-                detail=f"Xodim topilmadi (telegram_id={telegram_id}). Avval botda ro'yxatdan o'ting."
+                detail=f"Xodim topilmadi (ID: {req.telegram_id}). Botda ro'yxatdan o'ting."
             )
 
         # 3. Lokatsiya tekshirish
-        #    OFFICE_LAT/LON = 0 bo'lsa (sozlanmagan) — tekshirishni o'tkazib yuboramiz
         if OFFICE_LAT != 0 and OFFICE_LON != 0:
-            distance = haversine(latitude, longitude, OFFICE_LAT, OFFICE_LON)
+            distance = haversine(req.latitude, req.longitude, OFFICE_LAT, OFFICE_LON)
             if distance > OFFICE_RADIUS:
                 raise HTTPException(
                     status_code=400,
-                    detail=f"Ofisdan uzoqdasiz ({int(distance)}m). Ruxsat etilgan masofa: {int(OFFICE_RADIUS)}m"
+                    detail=f"Ofisdan uzoqdasiz ({int(distance)}m). Ruxsat: {int(OFFICE_RADIUS)}m"
                 )
 
-        # 4. Rasmni saqlash
-        #    data:image/... prefix bo'lsa olib tashlaymiz
-        clean_b64 = selfie_data.split(",")[1] if "," in selfie_data else selfie_data
-
+        # 4. Base64 → bytes
+        clean_b64 = req.selfie_data.split(",")[1] if "," in req.selfie_data else req.selfie_data
         try:
             image_bytes = base64.b64decode(clean_b64)
         except Exception:
-            raise HTTPException(status_code=400, detail="Rasm ma'lumoti noto'g'ri (base64 xato)")
+            raise HTTPException(status_code=400, detail="Rasm ma'lumoti noto'g'ri")
 
-        timestamp_str = datetime.now().strftime("%Y%m%d_%H%M%S")
-        filename = f"{telegram_id}_{timestamp_str}_{type}.jpg"
+        # 5. Rasmni diskka saqlash
+        ts       = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"{req.telegram_id}_{ts}_{req.type}.jpg"
         filepath = os.path.join(UPLOADS_DIR, filename)
-
         with open(filepath, "wb") as f:
             f.write(image_bytes)
 
-        # 5. Davomatni bazaga yozish
+        # 6. Bazaga yozish
         record = {
-            "employee_id":   telegram_id,
+            "employee_id":   req.telegram_id,
             "employee_name": employee.get("fullname", ""),
-            "type":          type,
+            "position":      employee.get("position", ""),
+            "type":          req.type,
             "timestamp":     datetime.now().isoformat(),
-            "latitude":      latitude,
-            "longitude":     longitude,
-            "accuracy":      accuracy,
+            "latitude":      req.latitude,
+            "longitude":     req.longitude,
+            "accuracy":      req.accuracy,
             "photo_path":    filepath,
-            "device_info":   device_info,
-            "platform":      platform,
             "status":        "completed",
         }
         attendance_table.insert(record)
 
+        # 7. Telegram kanalga yuborish
+        await send_to_channel(
+            image_bytes   = image_bytes,
+            employee_name = employee.get("fullname", "Noma'lum"),
+            position      = employee.get("position", ""),
+            telegram_id   = req.telegram_id,
+            att_type      = req.type,
+            latitude      = req.latitude,
+            longitude     = req.longitude,
+            accuracy      = req.accuracy,
+        )
+
+        label = "Kirish" if req.type == "KIRISH" else "Chiqish"
         return JSONResponse(
             status_code=200,
             content={
                 "success": True,
-                "message": f"{'Kirish' if type == 'KIRISH' else 'Chiqish'} muvaffaqiyatli qayd etildi ✓",
-                "data": {k: v for k, v in record.items() if k != "photo_path"},
-            },
+                "message": f"{label} muvaffaqiyatli qayd etildi ✓",
+            }
         )
 
     except HTTPException:
         raise
     except Exception as e:
-        # Aniq xato xabarini Render logs da ko'rish uchun
         print(f"[ATTENDANCE ERROR] {type(e).__name__}: {e}", flush=True)
         raise HTTPException(status_code=500, detail=f"Server xatosi: {str(e)}")
 
@@ -154,21 +228,16 @@ async def get_employees():
 
 
 @app.post("/api/employees")
-async def add_employee(employee_data: dict):
+async def add_employee(req: EmployeeRequest):
     try:
-        for field in ["telegram_id", "fullname", "position"]:
-            if field not in employee_data:
-                raise HTTPException(status_code=400, detail=f"Maydon yetishmayapti: {field}")
-
-        tid = int(employee_data["telegram_id"])
-        if find_employee(tid):
+        if find_employee(req.telegram_id):
             raise HTTPException(status_code=400, detail="Xodim allaqachon mavjud")
 
         employee = {
-            "telegram_id": tid,
-            "fullname":    employee_data["fullname"],
-            "position":    employee_data["position"],
-            "active":      employee_data.get("active", True),
+            "telegram_id": req.telegram_id,
+            "fullname":    req.fullname,
+            "position":    req.position,
+            "active":      req.active,
             "created_at":  datetime.now().isoformat(),
         }
         employees_table.insert(employee)
@@ -192,7 +261,6 @@ async def update_employee(employee_id: int, employee_data: dict):
             if key in employee_data:
                 employee[key] = employee_data[key]
         employee["updated_at"] = datetime.now().isoformat()
-
         employees_table.update(employee, Employee.telegram_id == employee_id)
         return {"success": True, "employee": employee}
 
@@ -222,4 +290,4 @@ async def delete_employee(employee_id: int):
 if __name__ == "__main__":
     import uvicorn
     from utils.config import HOST, PORT
-    uvicorn.run(app, host=HOST, port=PORT, reload=True)
+    uvicorn.run(app, host=HOST, port=PORT)
