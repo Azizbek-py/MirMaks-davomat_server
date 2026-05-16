@@ -89,7 +89,7 @@ async def send_to_channel(
     sana  = now.strftime("%d.%m.%Y")
     vaqt  = now.strftime("%H:%M:%S")
     emoji = "🟢" if att_type == "KIRISH" else "🔴"
-    label = "Xodimingiz ishga keldi" if att_type == "KIRISH" else "Xodimingiz ishdan ketdi"
+    label = "Xodimingiz ofisga keldi" if att_type == "KIRISH" else "Xodimingiz ofisdan chiqdi"
     maps  = f"https://maps.google.com/?q={latitude},{longitude}"
 
     caption = (
